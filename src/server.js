@@ -1,5 +1,5 @@
 // server.js
-// Auth service main entrypoint
+// Auth service — local JWT mode (no Cognito token validation)
 
 const express = require('express');
 const cors = require('cors');
