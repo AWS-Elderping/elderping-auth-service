@@ -23,7 +23,9 @@ jobs:
           node-version: '18'
 
       - name: Install Dependencies
-        run: npm ci
+        run: |
+          npm install --package-lock-only
+          npm ci
 
       - name: Lint
         run: npm run lint --if-present
