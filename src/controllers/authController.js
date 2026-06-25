@@ -6,8 +6,20 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/userModel');
 const { logAuditEvent } = require('../../shared/auth');
+const {
+  CognitoIdentityProviderClient,
+  SignUpCommand,
+  ConfirmSignUpCommand,
+  ResendConfirmationCodeCommand
+} = require('@aws-sdk/client-cognito-identity-provider');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+const COGNITO_CLIENT_ID = process.env.COGNITO_CLIENT_ID || '';
+const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+
+const cognitoClient = COGNITO_CLIENT_ID
+  ? new CognitoIdentityProviderClient({ region: AWS_REGION })
+  : null;
 
 // Helper for auditing within auth service
 const localLogAudit = (req, actionType, resource, resourceId, status, message) => {
@@ -25,11 +37,9 @@ const register = async (req, res) => {
     let finalEmail = email;
     let finalUsername = username;
     if (email && !username) {
-      // Username = part before '@', sanitized, with random suffix to avoid conflicts
       const base = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
       finalUsername = base + '_' + Math.random().toString(36).slice(2, 6);
     } else if (!email && username) {
-      // If username looks like an email, use it as both email and derive clean username
       if (username.includes('@')) {
         finalEmail = username;
         const base = username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
@@ -39,6 +49,39 @@ const register = async (req, res) => {
       }
     }
 
+    if (cognitoClient) {
+      // Register with Cognito — sends OTP email automatically
+      await cognitoClient.send(new SignUpCommand({
+        ClientId: COGNITO_CLIENT_ID,
+        Username: finalEmail,
+        Password: password,
+        UserAttributes: [
+          { Name: 'email', Value: finalEmail },
+          { Name: 'custom:role', Value: finalRole }
+        ]
+      }));
+
+      // Create local DB record, then mark PENDING until email is confirmed
+      const user = await User.create({
+        username: finalUsername,
+        hashedPassword,
+        email: finalEmail,
+        role: finalRole,
+        inviteCode
+      });
+      const pool = User.getPool();
+      await pool.query("UPDATE users SET status = 'PENDING' WHERE id = $1", [user.id]);
+
+      return res.status(201).json({
+        requiresOtp: true,
+        email: finalEmail,
+        registeredUsername: finalUsername,
+        userId: user.id,
+        message: 'Registration successful. Check your email for an OTP to verify your account.'
+      });
+    }
+
+    // Cognito not configured — activate immediately (local-only mode)
     const user = await User.create({
       username: finalUsername,
       hashedPassword,
@@ -47,12 +90,67 @@ const register = async (req, res) => {
       inviteCode
     });
 
-    // Return the actual username so the frontend knows what was registered
     res.status(201).json({ ...user, registeredUsername: finalUsername });
   } catch (error) {
-    if (error.code === '23505') {
+    if (error.code === '23505' || (error.__type && error.__type.includes('UsernameExistsException'))) {
       return res.status(409).json({ error: 'Email already registered. Please login.' });
     }
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const confirmOtp = async (req, res) => {
+  if (!cognitoClient) {
+    return res.status(400).json({ error: 'OTP verification not configured on this server.' });
+  }
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ error: 'email and otp are required' });
+    }
+
+    await cognitoClient.send(new ConfirmSignUpCommand({
+      ClientId: COGNITO_CLIENT_ID,
+      Username: email,
+      ConfirmationCode: otp
+    }));
+
+    // Activate the local DB user
+    const pool = User.getPool();
+    await pool.query(
+      "UPDATE users SET status = 'ACTIVE' WHERE LOWER(email) = LOWER($1)",
+      [email]
+    );
+
+    res.json({ message: 'Email verified successfully. You can now log in.' });
+  } catch (error) {
+    if (error.__type && error.__type.includes('CodeMismatchException')) {
+      return res.status(400).json({ error: 'Invalid OTP. Please check and try again.' });
+    }
+    if (error.__type && error.__type.includes('ExpiredCodeException')) {
+      return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const resendOtp = async (req, res) => {
+  if (!cognitoClient) {
+    return res.status(400).json({ error: 'OTP verification not configured on this server.' });
+  }
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+
+    await cognitoClient.send(new ResendConfirmationCodeCommand({
+      ClientId: COGNITO_CLIENT_ID,
+      Username: email
+    }));
+
+    res.json({ message: 'OTP resent. Check your email.' });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
@@ -68,6 +166,9 @@ const login = async (req, res) => {
     }
     
     // Check user status
+    if (user.status === 'PENDING') {
+      return res.status(403).json({ error: 'Email not verified. Please check your email for the OTP and use /verify-otp to confirm.' });
+    }
     if (user.status === 'SUSPENDED') {
       return res.status(403).json({ error: 'Account suspended. Contact administration.' });
     }
@@ -392,6 +493,8 @@ const adminUpdateStatus = async (req, res) => {
 
 module.exports = {
   register,
+  confirmOtp,
+  resendOtp,
   login,
   me,
   getUserById,

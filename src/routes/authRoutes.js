@@ -11,6 +11,8 @@ const validation = require('../validation/authValidation');
 // PUBLIC ENDPOINTS
 // ──────────────────────────────────────────────
 router.post('/register', validation.validateRegister, authController.register);
+router.post('/verify-otp', authController.confirmOtp);
+router.post('/resend-otp', authController.resendOtp);
 router.post('/login', validation.validateLogin, authController.login);
 router.get('/users/:id', authController.getUserById);
 router.get('/links/verify/:familyId/:elderId', authController.verifyLink);
