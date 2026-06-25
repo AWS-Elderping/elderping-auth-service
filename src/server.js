@@ -90,7 +90,16 @@ async function start() {
 
   // Seed demo data
   await seedDemoUsers();
-  
+
+  // Reset any PENDING users to ACTIVE — cleans up users stuck from a
+  // previous Cognito-based registration flow that is no longer in use
+  try {
+    const r = await pool.query("UPDATE users SET status = 'ACTIVE' WHERE status = 'PENDING'");
+    if (r.rowCount > 0) console.log(`✅ Reset ${r.rowCount} PENDING user(s) to ACTIVE.`);
+  } catch (err) {
+    console.error('⚠️ Could not reset PENDING users:', err.message);
+  }
+
   // Seed default SUPER_ADMIN if needed (and enabled)
   await bootstrapSuperAdmin();
 
