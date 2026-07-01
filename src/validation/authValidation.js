@@ -18,7 +18,7 @@ const validateRegister = (req, res, next) => {
   }
   if (role) {
     const finalRole = role.toUpperCase();
-    const allowed = ['SUPER_ADMIN', 'ADMIN', 'FAMILY', 'ELDER', 'USER', 'CAREGIVER'];
+    const allowed = ['SUPER_ADMIN', 'ADMIN', 'FAMILY', 'ELDER', 'USER', 'CAREGIVER', 'DOCTOR'];
     if (!allowed.includes(finalRole)) {
       return res.status(400).json({ error: `Invalid role. Allowed roles: ${allowed.join(', ')}` });
     }

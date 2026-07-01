@@ -340,6 +340,78 @@ const getConsents = async (req, res) => {
 };
 
 // ──────────────────────────────────────────────
+// DOCTOR-PATIENT LINK CONTROLLERS
+// ──────────────────────────────────────────────
+
+const listDoctors = async (req, res) => {
+  try {
+    const pool = User.getPool();
+    const result = await pool.query(
+      "SELECT id, username, email FROM users WHERE role = 'DOCTOR' ORDER BY username"
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const assignDoctor = async (req, res) => {
+  try {
+    const { elderId, doctorId } = req.body;
+    if (!elderId || !doctorId) {
+      return res.status(400).json({ error: 'elderId and doctorId are required' });
+    }
+    const pool = User.getPool();
+
+    const doctorRes = await pool.query("SELECT id, role FROM users WHERE id = $1", [doctorId]);
+    if (doctorRes.rows.length === 0 || doctorRes.rows[0].role !== 'DOCTOR') {
+      return res.status(400).json({ error: 'doctorId does not refer to a registered doctor' });
+    }
+
+    await pool.query(
+      `INSERT INTO doctor_patient_links (doctor_id, elder_id, assigned_by)
+       VALUES ($1, $2, $3) ON CONFLICT (doctor_id, elder_id) DO NOTHING`,
+      [doctorId, elderId, req.user.id]
+    );
+
+    localLogAudit(req, 'ASSIGN_DOCTOR', 'doctor_patient_links', `${doctorId}-${elderId}`, 'SUCCESS', `Assigned doctor ${doctorId} to elder ${elderId}`);
+    res.status(201).json({ success: true, doctorId, elderId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const getMyPatients = async (req, res) => {
+  try {
+    const doctorId = req.user.id;
+    const pool = User.getPool();
+    const result = await pool.query(
+      `SELECT u.id, u.username, u.role FROM users u
+       JOIN doctor_patient_links d ON u.id = d.elder_id
+       WHERE d.doctor_id = $1`,
+      [doctorId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const verifyDoctorLink = async (req, res) => {
+  try {
+    const { doctorId, elderId } = req.params;
+    const pool = User.getPool();
+    const result = await pool.query(
+      'SELECT 1 FROM doctor_patient_links WHERE doctor_id = $1 AND elder_id = $2',
+      [doctorId, elderId]
+    );
+    res.json({ linked: result.rows.length > 0 });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ──────────────────────────────────────────────
 // ADMIN CONTROLLERS
 // ──────────────────────────────────────────────
 
@@ -414,6 +486,10 @@ module.exports = {
   getEmergencyContacts,
   updateConsents,
   getConsents,
+  listDoctors,
+  assignDoctor,
+  getMyPatients,
+  verifyDoctorLink,
   adminListUsers,
   adminGetUser,
   adminUpdateRole,
