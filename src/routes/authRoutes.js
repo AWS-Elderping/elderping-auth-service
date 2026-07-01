@@ -20,7 +20,7 @@ router.get('/doctor-links/verify/:doctorId/:elderId', authController.verifyDocto
 // AUTHENTICATED ENDPOINTS
 // ──────────────────────────────────────────────
 router.get('/me', authenticate, authController.me);
-router.post('/link', authenticate, authController.linkFamily);
+router.post('/link', authenticate, requireRole('FAMILY'), authController.linkFamily);
 router.get('/links/elders', authenticate, authController.getEldersLink);
 router.get('/links/family', authenticate, authController.getFamilyLink);
 router.get('/doctors', authenticate, authController.listDoctors);
