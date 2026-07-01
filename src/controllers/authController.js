@@ -45,6 +45,18 @@ const register = async (req, res) => {
       inviteCode
     });
 
+    logAuditEvent({
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: 'REGISTER',
+      resource: 'users',
+      resourceId: user.id,
+      metadata: { message: `New ${user.role} account registered: ${user.username}` },
+      ipAddress: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+      userAgent: req.headers['user-agent'] || null
+    });
+
     res.status(201).json({ ...user, registeredUsername: finalUsername });
   } catch (error) {
     if (error.code === '23505') {
@@ -93,6 +105,18 @@ const login = async (req, res) => {
       JWT_SECRET,
       { expiresIn: '24h' }
     );
+
+    logAuditEvent({
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: 'LOGIN',
+      resource: 'users',
+      resourceId: user.id,
+      metadata: { message: `${user.username} logged in` },
+      ipAddress: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+      userAgent: req.headers['user-agent'] || null
+    });
 
     res.json({
       token,
