@@ -180,7 +180,6 @@ const checkRelationship = (elderIdParam = 'elderId') => {
           linked = result.rows.length > 0;
         } else {
           // Cross-service call to auth-service verification route
-          const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
           const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${elderId}`);
           if (response.ok) {
             const data = await response.json();
@@ -215,7 +214,6 @@ const checkRelationship = (elderIdParam = 'elderId') => {
           linked = result.rows.length > 0;
         } else {
           // Cross-service call to auth-service verification route
-          const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
           const response = await fetch(`${authServiceUrl}/doctor-links/verify/${userId}/${elderId}`);
           if (response.ok) {
             const data = await response.json();
